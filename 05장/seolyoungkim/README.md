@@ -299,3 +299,112 @@ update employees set hire_date=NOW() where first_name='Georgi' and last_name='Kl
     - `performance_schema` 스키마의 `data_locks`, `data_lock_waits` 테이블을 이용하여 확인 
 
 
+---
+
+---
+
+## 5.4 MySQL 격리 수준 
+- 트랜잭션 격리 수준(isolation level)
+  - 여러 트랜잭션이 동시에 처리될 때, 특정 트랜잭션이 다른 트랜잭션에서 변경하거나 조회하는 데이터를 볼 수 있게 허용할지 말지를 결정하는 것
+- 트랜잭션 격리 수준의 종류 (아래로 갈수록 `격리 수준↑`, `동시성 처리 성능↓`)
+  - `READ UNCOMMITTED`
+  - `READ COMMITTED`
+  - `REPEATABLE READ`
+  - `SERIALIZABLE`
+
+
+부정합 문제
+
+|                  | DIRTY READ | NON-REPEATABLE READ | PHANTOM READ  |
+|------------------|------------|---------------------|---------------|
+| READ UNCOMMITTED | O          | O                   | O             |
+| READ COMMITTED   | X          | O                   | O             |
+| REPEATABLE READ  | X          | X                   | O(InnoDB는 없음) |
+| SERIALIZABLE     | X          | X                   | X             |
+
+
+### 5.4.1 READ UNCOMMITTED
+![img_2.png](img_2.png)
+- 트랜잭션에서 변경한 내용이 COMMIT이나 ROLLBACK 여부와 상관없이 다른 트랜잭션에서 조회 가능
+- 위 예제에서 발생할 수 있는 문제 
+  - 사용자 A가 롤백을 한다고 하더라도, 여전히 사용자 B는 "Lara"가 정상적인 사원이라고 생각하고 계속 처리할 수 있음 
+  - 이를 `DIRTY READ`라고 함
+- `DIRTY READ`는 데이터가 나타났다 사라졌다 하는 현상을 초래
+- READ UNCOMMITED는 정합성에 문제가 많은 격리 수준 (격리를 안한다고 봐도 무방)
+
+
+### 5.4.2 READ COMMITTED
+![img_3.png](img_3.png)
+- 트랜잭션에서 변경한 내용이 COMMIT된 경우에만 다른 트랜잭션에서 조회 가능
+- `DIRTY READ`는 발생하지 않음
+- 예제 설명
+  - 사용자 A가 "Lara" -> "Toto"로 변경 
+  - 새로운 값인 "Toto"는 테이블에 즉시 기록 
+    - 이전 값인 "Lara"는 언두 로그에 기록 
+  - 사용자 B가 `emp_no=500000`인 사원을 조회 요청 
+  - 언두 로그에 기록된 데이터인 "Lara"를 반환  
+  - 사용자 A가 커밋
+  - 이후 요청에 대해서는 "Toto"를 반환
+- `NON-REPEATABLE READ` 부정합 발생 
+  - ![img_4.png](img_4.png)
+  - 사용자 B가 트랜잭션을 시작하고 "Toto" 사용자 조회 
+  - 결과가 없음
+  - 사용자 B의 트랜잭션이 끝나기 전에, 사용자 A가 "Lara"를 "Toto"로 변경하고 커밋  
+  - 사용자 B가 다시 "Toto" 사용자 조회
+  - `READ COMMITTED`는 커밋된 결과를 반환하므로, 결과가 있음
+  - 사용자 B는 같은 트랜잭션 내에서 조회한 결과가 다름 -> `NON-REPEATABLE READ` 부정합 발생
+- 위와 같은 부정합 문제는... 
+  - 하나의 트랜잭션에서 동일한 데이터를 여러번 읽고 변경하는 작업이 **금전적인 처리와 연결되면 문제가 될 수도 있음**
+
+
+### 5.4.3 REPEATABLE READ
+![img_5.png](img_5.png)
+- InnoDB 스토리지 엔진의 기본 격리 수준 
+- `NON-REPEATABLE READ`는 발생하지 않음
+- MVCC(Multi Version Concurrency Control)
+  - 변경 전 레코드를 Undo 공간에 백업해두고 실제 레코드 값을 변경 
+  - 이를 이용해 동일 트랜잭션 내에서는 동일한 결과를 보여줄 수 있게 보장함 
+- `READ COMMITED`와의 차이 
+  - 언두 영역에 백업된 레코드의 여러 버전 가운데, 몇 번째 이전 버전까지 찾아 들어가야 하느냐가 다름 
+- InnoDB의 특징 
+  - 모든 InnoDB의 트랜잭션은 순차적으로 증가하는 고유한 트랜잭션 번호를 가짐 
+  - 언두 영역에 백업된 모든 레코드에는 **변경을 발생시킨 트랜잭션 번호가 포함돼 있음**
+  - 언두 영역의 백업 데이터는 InnoDB 엔진이 불필요하다고 판단하는 시점에 주기적으로 삭제 
+  - `REPEATABLE READ`격리 수준에서는 MVCC를 보장하기 위해, 실행 중인 트랜잭션 가운데 가장 오래된 트랜잭션 번호보다 트랜잭션 번호가 앞선 언두 영역의 데이터는 삭제할 수 없음 
+    - 가장 오래된 트랜잭션 번호 이전의 트랜잭션에 의해 변경된 모든 언두 데이터가 필요한 것은 아님
+    - 따라서, **특정 트랜잭션 번호의 구간 내에서 백업된 언두 데이터가 모두 보존되어야 함**
+- 예제 설명
+  - 사용자 B가 `emp_no=500000`인 사원을 조회 (TRX-ID : 10) 
+  - "Lara" 반환 (TRX-ID : 6)
+  - 사용자 A가 "Lara" -> "Toto"로 변경 (TRX-ID : 12)
+  - 새로운 값인 "Toto"는 테이블에 즉시 기록 (TRX-ID : 12) 
+    - 이전 값인 "Lara"는 언두 로그에 기록 (TRX-ID : 6)
+  - 사용자 A가 커밋 (TRX-ID : 12)
+  - 사용자 B가 다시 `emp_no=500000`인 사원을 조회 (TRX-ID : 10)
+  - **TRX-ID가 10보다 작은 데이터**인 "Lara" 반환 (TRX-ID : 6)
+- `PHANTOM READ` 부정합 발생 
+  - ![img_6.png](img_6.png)
+  - 사용자 B가 `FOR UPDATE`를 이용하여 `emp_no>=500000`인 사원을 조회 (TRX-ID : 10)
+  - "Lara" 1건만 반환 (TRX-ID : 6)
+  - 사용자 A가 "Georgi(`emp_no=500001`)"를 `INSERT`하고 커밋 (TRX-ID : 12)
+  - 사용자 B가 `FOR UPDATE`를 이용하여 `emp_no>=500000`인 사원을 조회 (TRX-ID : 10)
+  - "Lara(TRX-ID : 6)", "Georgi(TRX-ID : 12)" 2건이 반환됨 
+  - 사용자 B는 같은 트랜잭션 내에서 같은 조회 쿼리를 사용했음에도 불구하고 레코드가 보였다 안보였다 하는 현상을 겪게 됨 (`PHANTOM READ`)
+- 위 부정합이 발생하는 이유 
+  - `SELECT ... FOR UPDATE`는 `SELECT`하는 레코드에 쓰기 락을 검 
+    - **언두 레코드에는 락을 걸 수 없음**
+  - `SELECT ... FOR UPDATE`와 같은 명령으로 조회되는 레코드는 **언두 영역의 변경 전 데이터를 가져오는 것이 아닌, 현재 레코드의 값을 가져옴**
+  - 즉, TRX-ID가 현재 트랜잭션보다 작은 레코드는 언두 영역에 백업된 데이터가 아닌, 현재 레코드의 값을 그대로 읽어오게 되어 발생한다
+- InnoDB는 팬텀 리드가 발생하지 않는다던데... 
+  - 갭 락과 넥스트키 락 덕분에 발생하지 않는다고 함 
+    - 테이블을 검색할 때 발견된(조회된) 레코드에 대해 레코드와 레코드 앞의 갭에 대해 락을 건다. 
+    - 따라서 조회된 레코드를 수정할 수 없고, 레코드 앞의 갭에 락을 걸었기 때문에 레코드 앞에 데이터가 새로 추가될 수 없다. 
+    - 또한 검색된 마지막 레코드 뒤에 갭락을 걸어서, 마지막 레코드의 다음 데이터를 추가할 수 없도록 락을 건다.
+  - 참고 자료
+    - [공식 문서](https://dev.mysql.com/doc/refman/8.0/en/innodb-next-key-locking.html)
+    - [MySQL에서 Phantom Read 처리를 하지 않을 경우 SELECT 성능](https://medium.com/sjk5766/mysql%EC%97%90%EC%84%9C-phantom-read-%EC%B2%98%EB%A6%AC%EB%A5%BC-%ED%95%98%EC%A7%80-%EC%95%8A%EC%9D%84-%EA%B2%BD%EC%9A%B0-select-%EC%84%B1%EB%8A%A5-b207c5ca3c87)
+
+### 5.4.4 SERIALIZABLE
+- 가장 단순하고 가장 엄격한 격리 수준 
+- 동시 처리 성능이 가장 낮음 
+- 읽기 작업도 쓰기 작업과 동일하게 락을 걸어서 처리하기 때문에, 읽던 쓰던 간에 한 트랜잭션만 작업을 수행할 ㅅ ㅜ있음 
