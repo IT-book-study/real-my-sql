@@ -403,8 +403,9 @@ update employees set hire_date=NOW() where first_name='Georgi' and last_name='Kl
   - 참고 자료
     - [공식 문서](https://dev.mysql.com/doc/refman/8.0/en/innodb-next-key-locking.html)
     - [MySQL에서 Phantom Read 처리를 하지 않을 경우 SELECT 성능](https://medium.com/sjk5766/mysql%EC%97%90%EC%84%9C-phantom-read-%EC%B2%98%EB%A6%AC%EB%A5%BC-%ED%95%98%EC%A7%80-%EC%95%8A%EC%9D%84-%EA%B2%BD%EC%9A%B0-select-%EC%84%B1%EB%8A%A5-b207c5ca3c87)
+    - [트랜잭션의 격리 수준(Isolation Level)에 대해 쉽고 완벽하게 이해하기](https://mangkyu.tistory.com/299)
 
 ### 5.4.4 SERIALIZABLE
 - 가장 단순하고 가장 엄격한 격리 수준 
 - 동시 처리 성능이 가장 낮음 
-- 읽기 작업도 쓰기 작업과 동일하게 락을 걸어서 처리하기 때문에, 읽던 쓰던 간에 한 트랜잭션만 작업을 수행할 ㅅ ㅜ있음 
+- 읽기 작업도 쓰기 작업과 동일하게 락을 걸어서 처리하기 때문에, 읽던 쓰던 간에 한 트랜잭션만 작업을 수행할 수있음 
