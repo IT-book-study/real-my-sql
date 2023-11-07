@@ -134,7 +134,7 @@ from employees
 order by first_name;
 ```
 
-![img.png](img.png)
+![img.png](img/img.png)
 - 정렬에 필요하지 않은 컬럼까지 전부 읽어서 소트 버퍼에 담아 정렬을 수행 
 - 정렬 완료 시 정렬 버퍼의 내용을 그대로 클라이언트에게 전달 
 
@@ -151,7 +151,7 @@ from employees
 order by first_name;
 ```
 
-![img_1.png](img_1.png)
+![img_1.png](img/img_1.png)
 1. 정렬에 필요한 `first_name`컬럼과 PK인 `emp_no`만 읽어서 정렬 수행 
 2. 정렬 결과의 순서대로 `employees` 테이블을 한번 더 읽어서 `last_name`을 가져옴 
 3. 최종 결과를 클라이언트에게 반환 
@@ -231,7 +231,7 @@ WHERE s.emp_no=e.emp_no
     AND e.emp_no BETWEEN 100002 AND 100020;
 ```
 
-![img_2.png](img_2.png)
+![img_2.png](img/img_2.png)
 - `employees` 테이블의 PK를 먼저 읽고, 그 다음 `salaries` 테이블을 조인 
 - 가능한 이유 
   - `B-Tree` 인덱스가 키 값으로 정렬돼있기 때문 
@@ -259,7 +259,7 @@ ORDER BY e.last_name;
 - `order by` 절의 컬럼은 `employees`의 PK와 전혀 연관이 없음 → 인덱스를 이용한 정렬 불가 
 - 드라이빙 테이블만 정렬 후 조인 수행 
 
-![img_3.png](img_3.png)
+![img_3.png](img/img_3.png)
 1. 인덱스를 이용해 `e.emp_no BETWEEN 100002 AND 100020` 조건을 만족하는 레코드를 검색 
 2. `last_name`을 기준으로 정렬 수행 (`Filesort`)
 3. 정렬된 결과를 순서대로 읽으며 `salaries` 테이블과 조인 수행 
@@ -280,7 +280,7 @@ WHERE s.emp_no=e.emp_no
 ORDER BY s.salary;
 ```
 
-![img_4.png](img_4.png)
+![img_4.png](img/img_4.png)
 - `order by`절의 정렬 기준 컬럼이 Driven table인 `salaries`임 
   - 정렬을 수행하기 전에 `salaries` 테이블을 먼저 읽어야 함
   - 따라서, 조인된 데이터를 가지고 정렬할 수밖에 없음 
@@ -333,8 +333,8 @@ LIMIT 10;
   - 두 테이블의 조인 결과는 전체 1,000건
 
 - 결과
-  - ![img_5.png](img_5.png)
-  - ![img_6.png](img_6.png)
+  - ![img_5.png](img/img_5.png)
+  - ![img_6.png](img/img_6.png)
 
 - 가능하면 인덱스를 사용한 정렬을 유도 
   - 안될 경우 최소한 드라이빙 테이블 정렬 
@@ -368,9 +368,9 @@ LIMIT 10;
   - prefix index: 인덱스의 앞쪽 일부만 사용하는 인덱스
 - 별도의 임시 테이블이 필요하지 않음 
 - 루스 인덱스 스캔을 사용할 수 있는 쿼리
-  - ![img_7.png](img_7.png)
+  - ![img_7.png](img/img_7.png)
 - 사용 불가능한 쿼리
-  - ![img_8.png](img_8.png)
+  - ![img_8.png](img/img_8.png)
 
 #### 예제 
 ```mysql
@@ -532,8 +532,8 @@ select *
 from dept_emp de, employees e
 where de.from_Date > '1995-01-01' and e.emp_no < 109004;
 ```
-![img_9.png](img_9.png)
-![img_10.png](img_10.png)
+![img_9.png](img/img_9.png)
+![img_10.png](img/img_10.png)
 1. `dept_emp`테이블의 `ix_dept_emp_from_date` 인덱스를 이용해 조건을 만족하는 레코드 검색
 2. 조인에 필요한 나머지 컬럼들을 `dept_emp`에서 읽어서 조인 버퍼에 저장 
 3. `employees` 테이블의 PK를 이용해 조건을 만족하는 레코드 검색 
@@ -551,7 +551,7 @@ where de.from_Date > '1995-01-01' and e.emp_no < 109004;
 ALTER TABLE employees ADD INDEX ix_lastname_firstname (last_name, first_name);
 SELECT * FROM employees WHERE last_name='Acton' AND first_name LIKE '%sal';
 ```
-![img_11.png](img_11.png)
+![img_11.png](img/img_11.png)
 - 위의 경우, `Acton`에 해당하는 조건으로 인덱스 레인지 스캔 → 테이블의 레코드를 읽음 
 - `first_name` 컬럼의 값이 `%sal` 조건에 부합하는지 여부를 비교 → 테이블의 레코드를 읽어서 비교함 
   - 100,000건의 `Acton`을 읽고, 단 1건만 `%sal`에 부합한다면, 99,999건의 불필요한 레코드를 읽어버리게 됨
@@ -562,7 +562,7 @@ SELECT * FROM employees WHERE last_name='Acton' AND first_name LIKE '%sal';
     - MySQL 5.5 버전까지는 인덱스를 범위 조건으로 사용하지 못하는 `%sal`과 같은 조건들은 MySQL 엔진이 InnoDB 엔진으로 전달 해주지 않아, 불필요한 2건의 테이블 읽기를 수행함 
 
 MySQL 5.6 버전부터는 아래와 같이 동작
-![img_12.png](img_12.png)
+![img_12.png](img/img_12.png)
 - 인덱스에 포함된 컬럼의 조건이 있는 경우, 모두 같이 모아서 스토리지 엔진으로 전달
   - `Acton`에 해당하는 조건으로 인덱스 레인지 스캔 → `%sal`에 해당하는 인덱스를 찾음(인덱스에 포함된 컬럼의 조건) → 모두 모아서 테이블 읽기 1회 수행 
 
@@ -650,10 +650,10 @@ SELECT * FROM employees e
 WHERE e.emp_no IN (SELECT de.emp_no FROM dept_emp de WHERE de.dept_no='d009');
 ```
 - 위 쿼리의 실행 계획은 다음과 같음
-  - ![img_13.png](img_13.png)
+  - ![img_13.png](img/img_13.png)
   - `id`가 1로 동일한데, 이는 조인으로 처리됐다는 의미임 (즉, Table pull out 최적화가 사용됨)
   - 아래와 같이 쿼리가 재작성됨
-    - ![img_14.png](img_14.png)
+    - ![img_14.png](img/img_14.png)
 
 #### 특성 
 - 세미 조인 서브쿼리에서만 사용 가능 
@@ -686,7 +686,7 @@ SELECT * FROM departments d WHERE d.dept_no IN ( SELECT de dept_no FROM dept_emp
 - 전체 레코드 수가 33만건, PK로 그루핑하면 9건 이라고 가정 
   - 결국 위 쿼리는 9건만 가져오면 됨 
   - 이는 아래와 같이 수행됨 
-    - ![img_15.png](img_15.png)
+    - ![img_15.png](img/img_15.png)
 
 #### 특징
 - 루스 인덱스 스캔으로 서브 쿼리 테이블을 읽음 → 아우터 테이블을 드리븐으로 사용 → 조인
@@ -754,7 +754,7 @@ SELECT * FROM departments d WHERE d.dept_no IN ( SELECT de dept_no FROM dept_emp
 
 
 ### 9.3.1.19 해시 조인(hash_join)
-![img_16.png](img_16.png)
+![img_16.png](img/img_16.png)
 - Nested loop join
   - 첫 번째 레코드를 찾는 속도는 빠르지만, 최종 레코드를 찾는 속도는 느림
   - 최고 응답속도(Best response time) 전략에 적합
@@ -773,9 +773,9 @@ SELECT * FROM departments d WHERE d.dept_no IN ( SELECT de dept_no FROM dept_emp
 - 프로브 단계 (Probe-phase)
   - 나머지 테이블의 레코드를 읽어 해시 테이블의 일치 레코드를 찾는 작업 단계
 
-![img_17.png](img_17.png)
-![img_18.png](img_18.png)
-![img_19.png](img_19.png)
+![img_17.png](img/img_17.png)
+![img_18.png](img/img_18.png)
+![img_19.png](img/img_19.png)
 - 해시 테이블을 메모리에 저장할 때 조인 버퍼 사용 
   - 기본 256KB, 공간이 부족한 경우 빌드 테이블과 프로브 테이블을 조인 버퍼보다 작은 청크로 분리하여 해시 조인 처리 
   - 디스크에 저장된 청크 개수만큼 과정을 반복 처리하여 완성된 조인 결과를 만들어냄
@@ -800,7 +800,7 @@ select * from t1, t2, t3, t4 where ....;
 ```
 
 ### 9.3.2.1 Exhaustive Search 알고리즘
-![img_20.png](img_20.png)
+![img_20.png](img/img_20.png)
 - `from` 절에 명시된 모든 테이블의 조합에 대해 실행 계획의 비용을 계산해서 최적의 조합 1개를 찾는 방법 
   - 최적의 조인 순서를 찾음 
 - MySQL 5.0 이하 버전에서 사용됨
@@ -809,7 +809,7 @@ select * from t1, t2, t3, t4 where ....;
 
 
 ### 9.3.2.2 Greedy Search 알고리즘
-![img_21.png](img_21.png)
+![img_21.png](img/img_21.png)
 - Exhaustive Search 알고리즘의 시간 소모적인 문제점을 해결하기 위해 도입된 기법 
 
 #### 조인 순서를 결정하는 방법
