@@ -426,3 +426,196 @@ WHERE e.emp_no=x.emp_no
   FROM employees e, dept_emp de, department d
   WHERE e.emp_no=de.emp_no AND de.dept_no=d.dept_no AND d.dept_no='d001';
   ```
+
+## 11.7 스키마 조작(DDL)
+
+- DDL: 서버의 모든 오브젝트를 생성하거나 변경하는 쿼리
+
+### 11.7.1 온라인 DDL
+
+- 온라인 DDL: 스키마를 변경하는 와중에도 다른 커넥션에서 데이터를 변경하거나 조회하는 작업을 가능하게 해준다.
+- 버전 이슈
+  - MySQL 5.5 이전 버전까지는 MySQL서버에서 테이블의 구조를 변경하는 동안에는 다른 커넥션에서 DML을 실행할 수 없었다.
+  - MySQL 8.0 부터는 "온라인 DDL"을 사용할 수 있게 되었다.
+
+#### 온라인 DDL 알고리즘
+
+`ALTER TABLE`을 실행하면 아래와 같은 순서로 스키마 변경에 적합한 알고리즘을 찾는다.
+
+1. ALGORITHM=INSTANT로 스키마 변경이 가능한가?
+2. ALGORITHM=INPLACE로 스키마 변경이 가능한가?
+3. ALGORITHM=COPY 선택
+
+알고리즘은 다음과 같다.
+
+- INSTANT
+  - 테이블의 데이터는 변경하지 않고, 메타데이터만 변경한다.
+  - 스키마 변경 도중, 쓰기 잠금이 걸린다.
+  - 변경이 굉장히 빠르게 처리되기 때문에 다른 커넥션의 성능에 큰 영향이 없다.
+- INPLACE
+  - 임시 테이블로 데이터를 복사하지 않고 스키마 변경을 실행
+  - 레코드의 복사는 없지만, 모든 레코드를 리빌드 한다. (테이블 크기에 따라 시간 소요될 수 있음)
+  - 최초 시작 시점과 마지막 종료 시점에만 쓰기 잠금이 걸린다.
+  - 잠금 시간은 매우 짧아서 다른 커넥션에 영향이 거의 없다.
+- COPY
+  - 변경된 스키마를 적용한 임시 테이블을 만들고, 레코드를 모두 복사한다.
+  - 읽기 잠금이 걸리고, DML(INSERT, UPDATE, DELETE)는 실행 불가능 하다. # 대기 한다는 것인가? 실행 불가능 하다는 것인가?
+
+#### 잠금 수준
+
+온라인 DDL 명령은 잠금 수준도 함께 명시할 수 있다.  
+아래와 같이! (INSTANT는 명시할 수 없다.)
+
+```sql
+ALTER TABLE salaries CHANGE to_date end_date DATE NOT NULL, ALGORITHM=INPLACE, LOCK=NONE;
+```
+
+종류는 다음과 같다.
+
+- NONE: 무잠금
+- SHARED: 읽기 잠금, 쓰기 불가능
+- EXCLUSIVE: 쓰기 잠금, 읽기 쓰기 불가능
+
+#### 온라인 DDL을 지원하는지 확인하는 법
+
+- 메뉴얼을 참고한다.
+- `ALTER TABLE`문장에 `LOCK`과 `ALGORITHM`을 명시해서 에러가 나오는지 확인해본다.
+
+  1. ALGORITHM=INSTANT
+  2. ALGORITHM=INPLACE, LOCK=NONE (여기까지 무 잠금)
+  3. ALGORITHM=INPLACE, LOCK=SHARED (여기서부터는 잠금이 걸린다. 서비스를 멈추고 스키마 점검 ㄱ)
+  4. ALGORITHM=COPY, LOCK=SHARED
+  5. ALGORITHM=COPY, LOCK=EXCLUSIVE
+
+  ```sql
+  -- ALGORITHM=INSTANT
+  sql> ALTER TABLE tb DROP PRIMARY KEY, ALGORITHM=INSTANT;
+  ERROR 1846: 뭐시기 어쩌고 저쩌고 ... Try ALGORITHM=COPY/INPLACE.
+
+  -- ALGORITHM=INPLACE, LOCK=NONE OR SHARED
+  sql> ALTER TABLE tb DROP PRIMARY KEY, ALGORITHM=INPLACE, LOCK=NONE;
+  ERROR 1846: 뭐시기 어쩌고 저쩌고 ... Try ALGORITHM=COPY.
+
+  -- ALGORITHM=COPY, LOCK=SHARED
+  sql> ALTER TABLE tb DROP PRIMARY KEY, ALGORITHM=INPLACE, LOCK=NONE;
+  Query OK, XXX rows affected. -- 성공!
+  ```
+
+#### INPLACE의 테이블 리빌드 (Data Reorganizing / Table Rebuild)
+
+- 프라이머리 키를 추가하는 작업은 레코드의 저장 위치가 변경되기 때문에, 리빌드가 필요하다.
+- 반면, 칼럼의 이름만 변경하는 경우는 필요 없다.
+
+#### INPLACE 알고리즘
+
+- 테이블 리빌드하는 과정
+  1. INPLACE 스키마 변경이 지원되는 스토리지 엔진의 테이블인지 확인
+  2. INPLACE 스키마 변경 준비
+  - (온라인 DDL 작업 동안 변경되는 데이터를 추적할 준비)
+  3. 스키마 변경 및 새로운 DML 로깅
+  - (다른 커넥션의 DML은 대기하지 않는다!)
+  - (DML는 온라인 변경 로그에 기록함)
+  4. 로그 적용
+  - (위에서 수집된 DML 로그를 적용)
+  5. COMMIT
+- 2번과 4번에서 배타적 잠금(Exclusive lock)이 필요하다.
+- 대부분의 실행시간은 3번이 차지한다.
+
+### 11.7.2 ~
+
+팁만 뽑았어요!
+
+#### 테이블 생성
+
+- 숫자 타입은 길이를 가질 수 있지만, 단순히 값을 보여줄때 길이를 지정하는 것이다. 그리고 Deprecated되었다.
+- DATE, DATETIME, TIMESTAMP는 DEFAULT로 현재시간을 명시할 수 있다. (좋은걸까..?)
+
+#### 테이블 삭제
+
+- 서비스 도중에 테이블 삭제 하지 말자.
+- 파일 조각들이 분산되어 있다면 부하가 높아져서 다른 커넥션에 영향을 끼칠 수 있다.
+- 어댑티브 해시 인덱스 삭제 작업으로 인해 서버에 부하가 높아질 수도 있다.
+
+#### 칼럼 추가
+
+- 테이블 마지막에 칼럼을 추가하면 INSTANT 알고리즘으로 즉시 처리가 가능하다. (중간에 하지 말자)
+
+#### 칼럼 수정
+
+- 칼럼의 이름 변경: INSTANT 알고리즘으로 빠른 처리 가능
+- 칼럼의 타입 변경: COPY, 테이블에 잠금이 걸리게 된다.
+- 칼럼의 길이 변경(VARCHAR 같은거): 케바케
+
+##### 칼럼의 길이 변경
+
+- 선행 지식
+  - 칼럼의 최대 사이즈는 메타데이터에 저장
+  - 값의 실 길이는 데이터 레코드의 칼럼 헤더에 저장
+
+실 길이를 저장하는 칼럼의 헤더 크기 (**길이를 저장하는 헤더의 크기**)에 따라 테이블 리빌드가 발생할 수 있다.
+
+- 최대 길이가 255 바이트 이하인 경우 -> 1바이트 (0<= x < 2^8)
+- 256 이상인 경우 -> 2바이트 (2^8<= x < 2^16)
+
+#### 인덱스 추가
+
+- 인덱스 변경도 온라인 DDL처리가 가능하다!
+- 전문 검색을 제외하면 모두 INPLACE에 LOCK=NONE으로 처리가 가능하다.
+
+#### 인덱스 이름 변경
+
+- INPLACE, LOCK=NONE
+- 테이블 리빌드 없다!
+
+#### 인덱스 칼럼 변경
+
+- `새 인덱스 추가 -> 기존 인덱스 삭제 -> 새 인덱스 이름 변경`과 같은 과정으로 처리 가능
+- INPLACE, LOCK=NONE
+
+#### 인덱스 가시성
+
+- 인덱스가 있지만, 마치 없는 것 처럼 할 수 있다. 옵티마이저가 무시한다.
+- `sql> ALTER TABLE tb ALTER INDEX ix_col INVISIBLE` (메타 데이터만 변경됨 INSTANT?)
+- 반대는 VISIBLE
+- `sql> ALTER TABLE tb ALTER INDEX ix_col VISIBLE`
+- 인덱스가 많아지면 성능이 악화될 수 있다. INVISIBLE 키워드로 인덱스를 적용할지 말지를 설정할 수 있다.
+
+#### 인덱스 삭제
+
+- 세컨더리 인덱스
+  - INPLACE, LOCK=NONE
+  - 테이블 리빌드 없다!
+- 프라이머리 키
+  - COPY, SHARED (세컨더리 인덱스에 있는 pk를 삭제해야 하기 때문에..)
+
+### 11.7.8 프로세스 조회 및 강제 종료
+
+- mysql에 접속한 사용자 목록이나 쿼리 실행 현황을 보고 싶을때
+  - `SHOW PROCESSLIST`
+  - 스레드 수만큼 표시된다.
+- 특정 스레드 / 쿼리를 죽이고 싶을때!
+  - `KILL QUERY [스레드 id]`: 쿼리만 종료
+  - `KILL [스레드 id]`: 커넥션 강제종료 -> 트랜잭션은 롤백 처리된다.
+
+### 11.7.9 활성 트랜잭션 조회
+
+- `information_schema.innodb_trx` 테이블을 통해 확인 가능.
+
+## 11.8 쿼리 성능 테스트
+
+### 성능에 영향을 미치는 요소
+
+- 운영체제의 캐시
+  - InnoDB는 파일 시스템의 캐시나 버퍼를 거치지 않는 Direct I/O를 사용, 운영체제 캐시는 별로 상관없다.
+  - MyISAM 마이 아이 삼 같은 경우는 운영체제의 캐시 의존도가 높다.
+- InnoDB 버퍼 풀
+  - 캐시 대상: 인덱스 페이지, 데이터 페이지, 쓰기 작업을 위한 버퍼링
+  - **MySQL 서버가 종료되면 자동으로 덤프되고, 다시 시작할때 자동으로 적재한다.**
+  - 덤프되는게 부담스럽고 완전히 새로 시작하고 싶으면..
+    - `innodb_buffer_pool_load_at_startup=OFF`
+    - `innodb_buffer_pool_down_at_shutdown=OFF`
+- 독립된 MySQL서버
+  - MySQL 서버를 실행하는 기기가 다른 프로그램을 같이 돌린다? 오오 성능 구려짐.
+- 쿼리 테스트 횟수
+  - 쿼리의 성능을 테스트 할때는 쿼리를 6~7번 정도 실행해보고 처음 2개는 버리고 나머지의 평균으로 비교하자.
+  - 워밍업/콜드 이슈가 있다.
