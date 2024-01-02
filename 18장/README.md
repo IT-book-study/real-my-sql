@@ -1,1 +1,0 @@
-# 18장 Performance 스키마 & Sys 스키마 
